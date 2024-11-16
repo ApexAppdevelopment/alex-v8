@@ -9,884 +9,196 @@ import { track } from "@vercel/analytics";
 import { useMicVAD, utils } from "@ricky0123/vad-react";
 
 type Message = {
-        role: "user" | "assistant";
-        content: string;
-        latency?: number;
+    role: "user" | "assistant";
+    content: string;
+    latency?: number;
 };
 
-export default function Home() {
-        const [input, setInput] = useState("");
-        const inputRef = useRef<HTMLInputElement>(null);
-        const player = usePlayer();
-
-        const vad = useMicVAD({
-                startOnLoad: true,
-                onSpeechEnd: (audio) => {
-                        player.stop();
-                        const wav = utils.encodeWAV(audio);
-                        const blob = new Blob([wav], { type: "audio/wav" });
-                        submit(blob);
-                        const isFirefox = navigator.userAgent.includes("Firefox");
-                        if (isFirefox) vad.pause();
-                },
-                workletURL: "/vad.worklet.bundle.min.js",
-                modelURL: "/silero_vad.onnx",
-                positiveSpeechThreshold: 0.6,
-                minSpeechFrames: 4,
-                ortConfig(ort) {
-                        const isSafari = /^((?!chrome|android).)*safari/i.test(
-                                navigator.userAgent
-                        );
-
-                        ort.env.wasm = {
-                                wasmPaths: {
-                                        "ort-wasm-simd-threaded.wasm":
-                                                "/ort-wasm-simd-threaded.wasm",
-                                        "ort-wasm-simd.wasm": "/ort-wasm-simd.wasm",
-                                        "ort-wasm.wasm": "/ort-wasm.wasm",
-                                        "ort-wasm-threaded.wasm": "/ort-wasm-threaded.wasm",
-                                },
-                                numThreads: isSafari ? 1 : 4,
-                        };
-                },
-        });
-
-        useEffect(() => {
-                function keyDown(e: KeyboardEvent) {
-                        if (e.key === "Enter") return inputRef.current?.focus();
-                        if (e.key === "Escape") return setInput("");
-                }
-
-                window.addEventListener("keydown", keyDown);
-                return () => window.removeEventListener("keydown", keyDown);
-        });
-
-        const [messages, submit, isPending] = useActionState<
-                Array<Message>,
-                string | Blob
-        >(async (prevMessages, data) => {
-                const formData = new FormData();
-
-                if (typeof data === "string") {
-                        formData.append("input", data);
-                        track("Text input");
-                } else {
-                        formData.append("input", data, "audio.wav");
-                        track("Speech input");
-                }
-
-                for (const message of prevMessages) {
-                        formData.append("message", JSON.stringify(message));
-                }
-
-                const submittedAt = Date.now();
-
-                const response = await fetch("/api", {
-                        method: "POST",
-                        body: formData,
-                });
-
-                const transcript = decodeURIComponent(
-                        response.headers.get("X-Transcript") || ""
-                );
-                const text = decodeURIComponent(
-                        response.headers.get("X-Response") || ""
-                );
-
-                if (!response.ok || !transcript || !text || !response.body) {
-                        if (response.status === 429) {
-                                toast.error("Too many requests. Please try again later.");
-                        } else {
-                                toast.error((await response.text()) || "An error occurred.");
-                        }
-
-                        return prevMessages;
-                }
-
-                const latency = Date.now() - submittedAt;
-                player.play(response.body, () => {
-                        const isFirefox = navigator.userAgent.includes("Firefox");
-                        if (isFirefox) vad.start();
-                });
-                setInput(transcript);
-
-                return [
-                        ...prevMessages,
-                        {
-                                role: "user",
-                                content: transcript,
-                        },
-                        {
-                                role: "assistant",
-                                content: text,
-                                latency,
-                        },
-                ];
-        }, []);
-
-        function handleFormSubmit(e: React.FormEvent) {
-                e.preventDefault();
-                submit(input);
-        }
-
-        return (
-                <>
-                        <div className="pb-4 min-h-28" />
-
-                        <form
-                                className="rounded-full bg-neutral-200/80 dark:bg-neutral-800/80 flex items-center w-full max-w-3xl border border-transparent hover:border-neutral-300 focus-within:border-neutral-400 hover:focus-within:border-neutral-400 dark:hover:border-neutral-700 dark:focus-within:border-neutral-600 dark:hover:focus-within:border-neutral-600"
-                                onSubmit={handleFormSubmit}
-                        >
-                                <input
-                                        type="text"
-                                        className="bg-transparent focus:outline-none p-4 w-full placeholder:text-neutral-600 dark:placeholder:text-neutral-400"
-                                        required
-                                        placeholder="Ask me anything"
-                                        value={input}
-                                        onChange={(e) => setInput(e.target.value)}
-                                        ref={inputRef}
-                                />
-
-                                <button
-                                        type="submit"
-                                        className="p-4 text-neutral-700 hover:text-black dark:text-neutral-300 dark:hover:text-white"
-                                        disabled={isPending}
-                                        aria-label="Submit"
-                                >
-                                        {isPending ? <LoadingIcon /> : <EnterIcon />}
-                                </button>
-                        </form>
-
-                        <div className="text-neutral-400 dark:text-neutral-600 pt-4 text-center max-w-xl text-balance min-h-28 space-y-4">
-                                {messages.length > 0 && (
-                                        <p>
-                                                {messages.at(-1)?.content}
-                                                <span className="text-xs font-mono text-neutral-300 dark:text-neutral-700">
-                                                        {" "}
-                                                        ({messages.at(-1)?.latency}ms)
-                                                </span>
-                                        </p>
-                                )}
-
-                                {messages.length === 0 && (
-                                        <>
-                                                <p>
-  A powerful, premium voice assistant enhanced by{" "}
-  <A href="https://groq.com">Emiliov8</A>,{" "}
-  <A href="https://cartesia.ai">Vmodel</A>,{" "}
-  <A href="https://www.vad.ricky0123.com/">AITEK</A>,
-  and <A href="https://vercel.com">MasterLLM</A>.{" "}
-  <A
-    href="https://github.com/ai-ng/swift"
-    target="_blank"
-  >
-    Learn more here
-  </A>.
-</p>
-                                                        </A>
-                                                        .
-                                                </p>
-
-                                                {vad.loading ? (
-                                                        <p>Loading speech detection...</p>
-                                                ) : vad.errored ? (
-                                                        <p>Failed to load speech detection.</p>
-                                                ) : (
-                                                        <p>Start talking to chat.</p>
-                                                )}
-                                        </>
-                                )}
-                        </div>
-
-                        <div
-                                className={clsx(
-                                        "absolute size-36 blur-3xl rounded-full bg-gradient-to-b from-red-200 to-red-400 dark:from-red-600 dark:to-red-800 -z-50 transition ease-in-out",
-                                        {
-                                                "opacity-0": vad.loading || vad.errored,
-                                                "opacity-30":
-                                                        !vad.loading && !vad.errored && !vad.userSpeaking,
-                                                "opacity-100 scale-110": vad.userSpeaking,
-                                        }
-                                )}
-                        />
-                </>
-        );
-}
-
 function A(props: any) {
-        return (
-                <a
-                        {...pro"use client";
-
-import clsx from "clsx";
-import { useActionState, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
-import { EnterIcon, LoadingIcon } from "@/lib/icons";
-import { usePlayer } from "@/lib/usePlayer";
-import { track } from "@vercel/analytics";
-import { useMicVAD, utils } from "@ricky0123/vad-react";
-
-type Message = {
-        role: "user" | "assistant";
-        content: string;
-        latency?: number;
-};
+    return (
+        <a
+            {...props}
+            className="text-neutral-500 dark:text-neutral-500 hover:underline font-medium"
+        />
+    );
+}
 
 export default function Home() {
-        const [input, setInput] = useState("");
-        const inputRef = useRef<HTMLInputElement>(null);
-        const player = usePlayer();
+    const [input, setInput] = useState("");
+    const inputRef = useRef<HTMLInputElement>(null);
+    const player = usePlayer();
 
-        const vad = useMicVAD({
-                startOnLoad: true,
-                onSpeechEnd: (audio) => {
-                        player.stop();
-                        const wav = utils.encodeWAV(audio);
-                        const blob = new Blob([wav], { type: "audio/wav" });
-                        submit(blob);
-                        const isFirefox = navigator.userAgent.includes("Firefox");
-                        if (isFirefox) vad.pause();
+    const vad = useMicVAD({
+        startOnLoad: true,
+        onSpeechEnd: (audio) => {
+            player.stop();
+            const wav = utils.encodeWAV(audio);
+            const blob = new Blob([wav], { type: "audio/wav" });
+            submit(blob);
+            if (navigator.userAgent.includes("Firefox")) vad.pause();
+        },
+        workletURL: "/vad.worklet.bundle.min.js",
+        modelURL: "/silero_vad.onnx",
+        positiveSpeechThreshold: 0.6,
+        minSpeechFrames: 4,
+        ortConfig(ort) {
+            const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+            ort.env.wasm = {
+                wasmPaths: {
+                    "ort-wasm-simd-threaded.wasm": "/ort-wasm-simd-threaded.wasm",
+                    "ort-wasm-simd.wasm": "/ort-wasm-simd.wasm",
+                    "ort-wasm.wasm": "/ort-wasm.wasm",
+                    "ort-wasm-threaded.wasm": "/ort-wasm-threaded.wasm",
                 },
-                workletURL: "/vad.worklet.bundle.min.js",
-                modelURL: "/silero_vad.onnx",
-                positiveSpeechThreshold: 0.6,
-                minSpeechFrames: 4,
-                ortConfig(ort) {
-                        const isSafari = /^((?!chrome|android).)*safari/i.test(
-                                navigator.userAgent
-                        );
+                numThreads: isSafari ? 1 : 4,
+            };
+        },
+    });
 
-                        ort.env.wasm = {
-                                wasmPaths: {
-                                        "ort-wasm-simd-threaded.wasm":
-                                                "/ort-wasm-simd-threaded.wasm",
-                                        "ort-wasm-simd.wasm": "/ort-wasm-simd.wasm",
-                                        "ort-wasm.wasm": "/ort-wasm.wasm",
-                                        "ort-wasm-threaded.wasm": "/ort-wasm-threaded.wasm",
-                                },
-                                numThreads: isSafari ? 1 : 4,
-                        };
-                },
-        });
-
-        useEffect(() => {
-                function keyDown(e: KeyboardEvent) {
-                        if (e.key === "Enter") return inputRef.current?.focus();
-                        if (e.key === "Escape") return setInput("");
-                }
-
-                window.addEventListener("keydown", keyDown);
-                return () => window.removeEventListener("keydown", keyDown);
-        });
-
-        const [messages, submit, isPending] = useActionState<
-                Array<Message>,
-                string | Blob
-        >(async (prevMessages, data) => {
-                const formData = new FormData();
-
-                if (typeof data === "string") {
-                        formData.append("input", data);
-                        track("Text input");
-                } else {
-                        formData.append("input", data, "audio.wav");
-                        track("Speech input");
-                }
-
-                for (const message of prevMessages) {
-                        formData.append("message", JSON.stringify(message));
-                }
-
-                const submittedAt = Date.now();
-
-                const response = await fetch("/api", {
-                        method: "POST",
-                        body: formData,
-                });
-
-                const transcript = decodeURIComponent(
-                        response.headers.get("X-Transcript") || ""
-                );
-                const text = decodeURIComponent(
-                        response.headers.get("X-Response") || ""
-                );
-
-                if (!response.ok || !transcript || !text || !response.body) {
-                        if (response.status === 429) {
-                                toast.error("Too many requests. Please try again later.");
-                        } else {
-                                toast.error((await response.text()) || "An error occurred.");
-                        }
-
-                        return prevMessages;
-                }
-
-                const latency = Date.now() - submittedAt;
-                player.play(response.body, () => {
-                        const isFirefox = navigator.userAgent.includes("Firefox");
-                        if (isFirefox) vad.start();
-                });
-                setInput(transcript);
-
-                return [
-                        ...prevMessages,
-                        {
-                                role: "user",
-                                content: transcript,
-                        },
-                        {
-                                role: "assistant",
-                                content: text,
-                                latency,
-                        },
-                ];
-        }, []);
-
-        function handleFormSubmit(e: React.FormEvent) {
-                e.preventDefault();
-                submit(input);
+    useEffect(() => {
+        function keyDown(e: KeyboardEvent) {
+            if (e.key === "Enter") inputRef.current?.focus();
+            if (e.key === "Escape") setInput("");
         }
 
-        return (
-                <>
-                        <div className="pb-4 min-h-28" />
+        window.addEventListener("keydown", keyDown);
+        return () => window.removeEventListener("keydown", keyDown);
+    }, []);
 
-                        <form
-                                className="rounded-full bg-neutral-200/80 dark:bg-neutral-800/80 flex items-center w-full max-w-3xl border border-transparent hover:border-neutral-300 focus-within:border-neutral-400 hover:focus-within:border-neutral-400 dark:hover:border-neutral-700 dark:focus-within:border-neutral-600 dark:hover:focus-within:border-neutral-600"
-                                onSubmit={handleFormSubmit}
-                        >
-                                <input
-                                        type="text"
-                                        className="bg-transparent focus:outline-none p-4 w-full placeholder:text-neutral-600 dark:placeholder:text-neutral-400"
-                                        required
-                                        placeholder="Ask me anything"
-                                        value={input}
-                                        onChange={(e) => setInput(e.target.value)}
-                                        ref={inputRef}
-                                />
+    const [messages, submit, isPending] = useActionState<
+        Array<Message>,
+        string | Blob
+    >(async (prevMessages, data) => {
+        const formData = new FormData();
 
-                                <button
-                                        type="submit"
-                                        className="p-4 text-neutral-700 hover:text-black dark:text-neutral-300 dark:hover:text-white"
-                                        disabled={isPending}
-                                        aria-label="Submit"
-                                >
-                                        {isPending ? <LoadingIcon /> : <EnterIcon />}
-                                </button>
-                        </form>
-
-                        <div className="text-neutral-400 dark:text-neutral-600 pt-4 text-center max-w-xl text-balance min-h-28 space-y-4">
-                                {messages.length > 0 && (
-                                        <p>
-                                                {messages.at(-1)?.content}
-                               "use client";
-
-import clsx from "clsx";
-import { useActionState, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
-import { EnterIcon, LoadingIcon } from "@/lib/icons";
-import { usePlayer } from "@/lib/usePlayer";
-import { track } from "@vercel/analytics";
-import { useMicVAD, utils } from "@ricky0123/vad-react";
-
-type Message = {
-        role: "user" | "assistant";
-        content: string;
-        latency?: number;
-};
-
-export default function Home() {
-        const [input, setInput] = useState("");
-        const inputRef = useRef<HTMLInputElement>(null);
-        const player = usePlayer();
-
-        const vad = useMicVAD({
-                startOnLoad: true,
-                onSpeechEnd: (audio) => {
-                        player.stop();
-                        const wav = utils.encodeWAV(audio);
-                        const blob = new Blob([wav], { type: "audio/wav" });
-                        submit(blob);
-                        const isFirefox = navigator.userAgent.includes("Firefox");
-                        if (isFirefox) vad.pause();
-                },
-                workletURL: "/vad.worklet.bundle.min.js",
-                modelURL: "/silero_vad.onnx",
-                positiveSpeechThreshold: 0.6,
-                minSpeechFrames: 4,
-                ortConfig(ort) {
-                        const isSafari = /^((?!chrome|android).)*safari/i.test(
-                                navigator.userAgent
-                        );
-
-                        ort.env.wasm = {
-                                wasmPaths: {
-                                        "ort-wasm-simd-threaded.wasm":
-                                                "/ort-wasm-simd-threaded.wasm",
-                                        "ort-wasm-simd.wasm": "/ort-wasm-simd.wasm",
-                                        "ort-wasm.wasm": "/ort-wasm.wasm",
-                                        "ort-wasm-threaded.wasm": "/ort-wasm-threaded.wasm",
-                                },
-                                numThreads: isSafari ? 1 : 4,
-                        };
-                },
-        });
-
-        useEffect(() => {
-                function keyDown(e: KeyboardEvent) {
-                        if (e.key === "Enter") return inputRef.current?.focus();
-                        if (e.key === "Escape") return setInput("");
-                }
-
-                window.addEventListener("keydown", keyDown);
-                return () => window.removeEventListener("keydown", keyDown);
-        });
-
-        const [messages, submit, isPending] = useActionState<
-                Array<Message>,
-                string | Blob
-        >(async (prevMessages, data) => {
-                const formData = new FormData();
-
-                if (typeof data === "string") {
-                        formData.append("input", data);
-                        track("Text input");
-                } else {
-                        formData.append("input", data, "audio.wav");
-                        track("Speech input");
-                }
-
-                for (const message of prevMessages) {
-                        formData.append("message", JSON.stringify(message));
-                }
-
-                const submittedAt = Date.now();
-
-                const response = await fetch("/api", {
-                        method: "POST",
-                        body: formData,
-                });
-
-                const transcript = decodeURIComponent(
-                        response.headers.get("X-Transcript") || ""
-                );
-                const text = decodeURIComponent(
-                        response.headers.get("X-Response") || ""
-                );
-
-                if (!response.ok || !transcript || !text || !response.body) {
-                        if (response.status === 429) {
-                                toast.error("Too many requests. Please try again later.");
-                        } else {
-                                toast.error((await response.text()) || "An error occurred.");
-                        }
-
-                        return prevMessages;
-                }
-
-                const latency = Date.now() - submittedAt;
-                player.play(response.body, () => {
-                        const isFirefox = navigator.userAgent.includes("Firefox");
-                        if (isFirefox) vad.start();
-                });
-                setInput(transcript);
-
-                return [
-                        ...prevMessages,
-                        {
-                                role: "user",
-                                content: transcript,
-                        },
-                        {
-                                role: "assistant",
-                                content: text,
-                                latency,
-                        },
-                ];
-        }, []);
-
-        function handleFormSubmit(e: React.FormEvent) {
-                e.preventDefault();
-                submit(input);
+        if (typeof data === "string") {
+            formData.append("input", data);
+            track("Text input");
+        } else {
+            formData.append("input", data, "audio.wav");
+            track("Speech input");
         }
 
-        return (
-                <>
-                        <div className="pb-4 min-h-28" />
+        prevMessages.forEach((message) => {
+            formData.append("message", JSON.stringify(message));
+        });
 
-                        <form
-                                className="rounded-full bg-neutral-200/80 dark:bg-neutral-800/80 flex items-center w-full max-w-3xl border border-transparent hover:border-neutral-300 focus-within:border-neutral-400 hover:focus-within:border-neutral-400 dark:hover:border-neutral-700 dark:focus-within:border-neutral-600 dark:hover:focus-within:border-neutral-600"
-                                onSubmit={handleFormSubmit}
-                        >
-                                <input
-                                        type="text"
-                                        className="bg-transparent focus:outline-none p-4 w-full placeholder:text-neutral-600 dark:placeholder:text-neutral-400"
-                                        required
-                                        placeholder="Ask me anything"
-                                        value={input}
-                                        onChange={(e) => setInput(e.target.value)}
-                                        ref={inputRef}
-                                />
+        const submittedAt = Date.now();
 
-                                <button
-                                        type="submit"
-                                        className="p-4 text-neutral-700 hover:text-black dark:text-neutral-300 dark:hover:text-white"
-                                        disabled={isPending}
-                                        aria-label="Submit"
-                                >
-                                        {isPending ? <LoadingIcon /> : <EnterIcon />}
-                                </button>
-                        </form>
+        const response = await fetch("/api", {
+            method: "POST",
+            body: formData,
+        });
 
-                        <div className="text-neutral-400 dark:text-neutral-600 pt-4 text-center max-w-xl text-balance min-h-28 space-y-4">
-                                {messages.length > 0 && (
-                                        <p>
-                                                {messages.at(-1)?.content}
-                                                <span className="text-xs font-mono text-neutral-300 dark:text-neutral-700">
-                                                        {" "}
-                                                        ({messages.at(-1)?.latency}ms)
-                                                </span>
-                                        </p>
-                                )}
-
-                                {messages.length === 0 && (
-                                        <>
-                                                <p>
-  A powerful, premium voice assistant enhanced by{" "}
-  <A href="https://groq.com">Emiliov8</A>,{" "}
-  <A href="https://cartesia.ai">Vmodel</A>,{" "}
-  <A href="https://www.vad.ricky0123.com/">AITEK</A>,
-  and <A href="https://vercel.com">MasterLLM</A>.{" "}
-  <A
-    href="https://github.com/ai-ng/swift"
-    target="_blank"
-  >
-    Learn more here
-  </A>.
-</p>
-                                                        </A>
-                                                        .
-                                                </p>
-
-                                                {vad.loading ? (
-                                                        <p>Loading speech detection...</p>
-                                                ) : vad.errored ? (
-                                                        <p>Failed to load speech detection.</p>
-                                                ) : (
-                                                        <p>Start talking to chat.</p>
-                                                )}
-                                        </>
-                                )}
-                        </div>
-
-                        <div
-                                className={clsx(
-                                        "absolute size-36 blur-3xl rounded-full bg-gradient-to-b from-red-200 to-red-400 dark:from-red-600 dark:to-red-800 -z-50 transition ease-in-out",
-                                        {
-                                                "opacity-0": vad.loading || vad.errored,
-                                                "opacity-30":
-                                                        !vad.loading && !vad.errored && !vad.userSpeaking,
-                                                "opacity-100 scale-110": vad.userSpeaking,
-                                        }
-                                )}
-                        />
-                </>
+        const transcript = decodeURIComponent(
+            response.headers.get("X-Transcript") || ""
         );
-}
+        const text = decodeURIComponent(
+            response.headers.get("X-Response") || ""
+        );
 
-function A(props: any) {
-        return (
-                <a
-                        {...pro"use client";
-
-import clsx from "clsx";
-import { useActionState, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
-import { EnterIcon, LoadingIcon } from "@/lib/icons";
-import { usePlayer } from "@/lib/usePlayer";
-import { track } from "@vercel/analytics";
-import { useMicVAD, utils } from "@ricky0123/vad-react";
-
-type Message = {
-        role: "user" | "assistant";
-        content: string;
-        latency?: number;
-};
-
-export default function Home() {
-        const [input, setInput] = useState("");
-        const inputRef = useRef<HTMLInputElement>(null);
-        const player = usePlayer();
-
-        const vad = useMicVAD({
-                startOnLoad: true,
-                onSpeechEnd: (audio) => {
-                        player.stop();
-                        const wav = utils.encodeWAV(audio);
-                        const blob = new Blob([wav], { type: "audio/wav" });
-                        submit(blob);
-                        const isFirefox = navigator.userAgent.includes("Firefox");
-                        if (isFirefox) vad.pause();
-                },
-                workletURL: "/vad.worklet.bundle.min.js",
-                modelURL: "/silero_vad.onnx",
-                positiveSpeechThreshold: 0.6,
-                minSpeechFrames: 4,
-                ortConfig(ort) {
-                        const isSafari = /^((?!chrome|android).)*safari/i.test(
-                                navigator.userAgent
-                        );
-
-                        ort.env.wasm = {
-                                wasmPaths: {
-                                        "ort-wasm-simd-threaded.wasm":
-                                                "/ort-wasm-simd-threaded.wasm",
-                                        "ort-wasm-simd.wasm": "/ort-wasm-simd.wasm",
-                                        "ort-wasm.wasm": "/ort-wasm.wasm",
-                                        "ort-wasm-threaded.wasm": "/ort-wasm-threaded.wasm",
-                                },
-                                numThreads: isSafari ? 1 : 4,
-                        };
-                },
-        });
-
-        useEffect(() => {
-                function keyDown(e: KeyboardEvent) {
-                        if (e.key === "Enter") return inputRef.current?.focus();
-                        if (e.key === "Escape") return setInput("");
-                }
-
-                window.addEventListener("keydown", keyDown);
-                return () => window.removeEventListener("keydown", keyDown);
-        });
-
-        const [messages, submit, isPending] = useActionState<
-                Array<Message>,
-                string | Blob
-        >(async (prevMessages, data) => {
-                const formData = new FormData();
-
-                if (typeof data === "string") {
-                        formData.append("input", data);
-                        track("Text input");
-                } else {
-                        formData.append("input", data, "audio.wav");
-                        track("Speech input");
-                }
-
-                for (const message of prevMessages) {
-                        formData.append("message", JSON.stringify(message));
-                }
-
-                const submittedAt = Date.now();
-
-                const response = await fetch("/api", {
-                        method: "POST",
-                        body: formData,
-                });
-
-                const transcript = decodeURIComponent(
-                        response.headers.get("X-Transcript") || ""
-                );
-                const text = decodeURIComponent(
-                        response.headers.get("X-Response") || ""
-                );
-
-                if (!response.ok || !transcript || !text || !response.body) {
-                        if (response.status === 429) {
-                                toast.error("Too many requests. Please try again later.");
-                        } else {
-                                toast.error((await response.text()) || "An error occurred.");
-                        }
-
-                        return prevMessages;
-                }
-
-                const latency = Date.now() - submittedAt;
-                player.play(response.body, () => {
-                        const isFirefox = navigator.userAgent.includes("Firefox");
-                        if (isFirefox) vad.start();
-                });
-                setInput(transcript);
-
-                return [
-                        ...prevMessages,
-                        {
-                                role: "user",
-                                content: transcript,
-                        },
-                        {
-                                role: "assistant",
-                                content: text,
-                                latency,
-                        },
-                ];
-        }, []);
-
-        function handleFormSubmit(e: React.FormEvent) {
-                e.preventDefault();
-                submit(input);
+        if (!response.ok || !transcript || !text || !response.body) {
+            const errorMessage =
+                response.status === 429
+                    ? "Too many requests. Please try again later."
+                    : (await response.text()) || "An error occurred.";
+            toast.error(errorMessage);
+            return prevMessages;
         }
 
-        return (
-                <>
-                        <div className="pb-4 min-h-28" />
+        const latency = Date.now() - submittedAt;
+        player.play(response.body, () => {
+            if (navigator.userAgent.includes("Firefox")) vad.start();
+        });
+        setInput(transcript);
 
-                        <form
-                                className="rounded-full bg-neutral-200/80 dark:bg-neutral-800/80 flex items-center w-full max-w-3xl border border-transparent hover:border-neutral-300 focus-within:border-neutral-400 hover:focus-within:border-neutral-400 dark:hover:border-neutral-700 dark:focus-within:border-neutral-600 dark:hover:focus-within:border-neutral-600"
-                                onSubmit={handleFormSubmit}
-                        >
-                                <input
-                                        type="text"
-                                        className="bg-transparent focus:outline-none p-4 w-full placeholder:text-neutral-600 dark:placeholder:text-neutral-400"
-                                        required
-                                        placeholder="Ask me anything"
-                                        value={input}
-                                        onChange={(e) => setInput(e.target.value)}
-                                        ref={inputRef}
-                                />
+        return [
+            ...prevMessages,
+            { role: "user", content: transcript },
+            { role: "assistant", content: text, latency },
+        ];
+    }, []);
 
-                                <button
-                                        type="submit"
-                                        className="p-4 text-neutral-700 hover:text-black dark:text-neutral-300 dark:hover:text-white"
-                                        disabled={isPending}
-                                        aria-label="Submit"
-                                >
-                                        {isPending ? <LoadingIcon /> : <EnterIcon />}
-                                </button>
-                        </form>
+    function handleFormSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        submit(input);
+    }
 
-                        <div className="text-neutral-400 dark:text-neutral-600 pt-4 text-center max-w-xl text-balance min-h-28 space-y-4">
-                                {messages.length > 0 && (
-                                        <p>
-                                                {messages.at(-1)?.content}
-                                                <span className="text-xs font-mono text-neutral-300 dark:text-neutral-700">
-                                                        {" "}
-                                                        ({messages.at(-1)?.latency}ms)
-                                                </span>
-                                        </p>
-                                )}
+    return (
+        <>
+            <div className="pb-4 min-h-28" />
 
-                                {messages.length === 0 && (
-                                        <>
-                                                <p>
-  A powerful, premium voice assistant enhanced by{" "}
-  <A href="https://groq.com">Emiliov8</A>,{" "}
-  <A href="https://cartesia.ai">Vmodel</A>,{" "}
-  <A href="https://www.vad.ricky0123.com/">AITEK</A>,
-  and <A href="https://vercel.com">MasterLLM</A>.{" "}
-  <A
-    href="https://github.com/ai-ng/swift"
-    target="_blank"
-  >
-    Learn more here
-  </A>.
-</p>
-                                                        </A>
-                                                        .
-                                                </p>
-
-                                                {vad.loading ? (
-                                                        <p>Loading speech detection...</p>
-                                                ) : vad.errored ? (
-                                                        <p>Failed to load speech detection.</p>
-                                                ) : (
-                                                        <p>Start talking to chat.</p>
-                                                )}
-                                        </>
-                                )}
-                        </div>
-
-                        <div
-                                className={clsx(
-                                        "absolute size-36 blur-3xl rounded-full bg-gradient-to-b from-red-200 to-red-400 dark:from-red-600 dark:to-red-800 -z-50 transition ease-in-out",
-                                        {
-                                                "opacity-0": vad.loading || vad.errored,
-                                                "opacity-30":
-                                                        !vad.loading && !vad.errored && !vad.userSpeaking,
-                                                "opacity-100 scale-110": vad.userSpeaking,
-                                        }
-                                )}
-                        />
-                </>
-        );
-}
-
-function A(props: any) {
-        return (
-                <a
-                        {...props}
-                        className="text-neutral-500 dark:text-neutral-500 hover:underline font-medium"
+            <form
+                className="rounded-full bg-neutral-200/80 dark:bg-neutral-800/80 flex items-center w-full max-w-3xl border border-transparent hover:border-neutral-300 focus-within:border-neutral-400 hover:focus-within:border-neutral-400 dark:hover:border-neutral-700 dark:focus-within:border-neutral-600 dark:hover:focus-within:border-neutral-600"
+                onSubmit={handleFormSubmit}
+            >
+                <input
+                    type="text"
+                    className="bg-transparent focus:outline-none p-4 w-full placeholder:text-neutral-600 dark:placeholder:text-neutral-400"
+                    required
+                    placeholder="Ask me anything"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    ref={inputRef}
                 />
-        );
-}
-ps}
-                        className="text-neutral-500 dark:text-neutral-500 hover:underline font-medium"
-                />
-        );
-}
-                 <span className="text-xs font-mono text-neutral-300 dark:text-neutral-700">
-                                                        {" "}
-                                                        ({messages.at(-1)?.latency}ms)
-                                                </span>
-                                        </p>
-                                )}
+                <button
+                    type="submit"
+                    className="p-4 text-neutral-700 hover:text-black dark:text-neutral-300 dark:hover:text-white"
+                    disabled={isPending}
+                    aria-label="Submit"
+                >
+                    {isPending ? <LoadingIcon /> : <EnterIcon />}
+                </button>
+            </form>
 
-                                {messages.length === 0 && (
-                                        <>
-                                                <p>
-  A powerful, premium voice assistant enhanced by{" "}
-  <A href="https://groq.com">Emiliov8</A>,{" "}
-  <A href="https://cartesia.ai">Vmodel</A>,{" "}
-  <A href="https://www.vad.ricky0123.com/">AITEK</A>,
-  and <A href="https://vercel.com">MasterLLM</A>.{" "}
-  <A
-    href="https://github.com/ai-ng/swift"
-    target="_blank"
-  >
-    Learn more here
-  </A>.
-</p>
-                                                        </A>
-                                                        .
-                                                </p>
+            <div className="text-neutral-400 dark:text-neutral-600 pt-4 text-center max-w-xl text-balance min-h-28 space-y-4">
+                {messages.length > 0 && (
+                    <p>
+                        {messages.at(-1)?.content}
+                        <span className="text-xs font-mono text-neutral-300 dark:text-neutral-700">
+                            {" "}
+                            ({messages.at(-1)?.latency}ms)
+                        </span>
+                    </p>
+                )}
 
-                                                {vad.loading ? (
-                                                        <p>Loading speech detection...</p>
-                                                ) : vad.errored ? (
-                                                        <p>Failed to load speech detection.</p>
-                                                ) : (
-                                                        <p>Start talking to chat.</p>
-                                                )}
-                                        </>
-                                )}
-                        </div>
+                {messages.length === 0 && (
+                    <>
+                        <p>
+                            A powerful, premium voice assistant enhanced by{" "}
+                            <A href="https://groq.com">Emiliov8</A>,{" "}
+                            <A href="https://cartesia.ai">Vmodel</A>,{" "}
+                            <A href="https://www.vad.ricky0123.com/">AITEK</A>, and{" "}
+                            <A href="https://vercel.com">MasterLLM</A>.{" "}
+                            <A
+                                href="https://github.com/ai-ng/swift"
+                                target="_blank"
+                            >
+                                Learn more here
+                            </A>.
+                        </p>
 
-                        <div
-                                className={clsx(
-                                        "absolute size-36 blur-3xl rounded-full bg-gradient-to-b from-red-200 to-red-400 dark:from-red-600 dark:to-red-800 -z-50 transition ease-in-out",
-                                        {
-                                                "opacity-0": vad.loading || vad.errored,
-                                                "opacity-30":
-                                                        !vad.loading && !vad.errored && !vad.userSpeaking,
-                                                "opacity-100 scale-110": vad.userSpeaking,
-                                        }
-                                )}
-                        />
-                </>
-        );
-}
+                        {vad.loading ? (
+                            <p>Loading speech detection...</p>
+                        ) : vad.errored ? (
+                            <p>Failed to load speech detection.</p>
+                        ) : (
+                            <p>Start talking to chat.</p>
+                        )}
+                    </>
+                )}
+            </div>
 
-function A(props: any) {
-        return (
-                <a
-                        {...props}
-                        className="text-neutral-500 dark:text-neutral-500 hover:underline font-medium"
-                />
-        );
-}
-ps}
-                        className="text-neutral-500 dark:text-neutral-500 hover:underline font-medium"
-                />
-        );
+            <div
+                className={clsx(
+                    "absolute size-36 blur-3xl rounded-full bg-gradient-to-b from-red-200 to-red-400 dark:from-red-600 dark:to-red-800 -z-50 transition ease-in-out",
+                    {
+                        "opacity-0": vad.loading || vad.errored,
+                        "opacity-30": !vad.loading && !vad.errored && !vad.userSpeaking,
+                        "opacity-100 scale-110": vad.userSpeaking,
+                    }
+                )}
+            />
+        </>
+    );
 }
