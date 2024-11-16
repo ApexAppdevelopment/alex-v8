@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { EnterIcon, LoadingIcon } from "@/lib/icons";
 import { usePlayer } from "@/lib/usePlayer";
@@ -14,7 +14,9 @@ type Message = {
     latency?: number;
 };
 
-function A(props: any) {
+type AProps = React.AnchorHTMLAttributes<HTMLAnchorElement>;
+
+function A(props: AProps) {
     return (
         <a
             {...props}
