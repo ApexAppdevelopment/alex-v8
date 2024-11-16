@@ -1,12 +1,12 @@
+// app/api/chat/route.ts
+
+import Groq from "groq-sdk";
+import { headers } from "next/headers";
 import { z } from "zod";
 import { zfd } from "zod-form-data";
-import { headers } from "next/headers";
 import { unstable_after as after } from "next/server";
 
-// Define environment variables for API keys
-const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY!;
-const TOGETHERAI_API_KEY = process.env.TOGETHERAI_API_KEY!;
-const NEETS_API_KEY = process.env.NEETS_API_KEY!;
+const groq = new Groq();
 
 // Define the schema for form data validation
 const schema = zfd.formData({
@@ -93,7 +93,7 @@ async function getTranscript(input: string | File): Promise<string | null> {
       {
         method: "POST",
         headers: {
-          Authorization: `Token ${DEEPGRAM_API_KEY}`,
+          Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
           // 'Content-Type' is automatically set to 'multipart/form-data' when using FormData
         },
         body: formData,
@@ -158,7 +158,7 @@ async function getChatCompletion(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${TOGETHERAI_API_KEY}`,
+        Authorization: `Bearer ${process.env.TOGETHERAI_API_KEY}`,
       },
       body: JSON.stringify(payload),
     });
@@ -191,7 +191,7 @@ async function getTTS(text: string): Promise<Uint8Array | null> {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-API-Key": NEETS_API_KEY,
+        "X-API-Key": process.env.NEETS_API_KEY!,
       },
       body: JSON.stringify(payload),
     });
