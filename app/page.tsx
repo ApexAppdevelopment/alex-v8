@@ -5,8 +5,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { EnterIcon, LoadingIcon } from "@/lib/icons";
 import { usePlayer } from "@/lib/usePlayer";
-import { track } from "@vercel/analytics";
-import { useMicVAD, utils } from "@ricky0123/vad-react";
+import { useMicVAD, utils } from "@aitekph/vad-react";
 
 type Message = {
 	role: "user" | "assistant";
@@ -30,7 +29,7 @@ export default function Home() {
 			if (isFirefox) vad.pause();
 		},
 		workletURL: "/vad.worklet.bundle.min.js",
-		modelURL: "/silero_vad.onnx",
+		modelURL: "/emilio_vad.onnx",
 		positiveSpeechThreshold: 0.6,
 		minSpeechFrames: 4,
 		ortConfig(ort) {
@@ -69,10 +68,8 @@ export default function Home() {
 
 		if (typeof data === "string") {
 			formData.append("input", data);
-			track("Text input");
 		} else {
 			formData.append("input", data, "audio.wav");
-			track("Speech input");
 		}
 
 		for (const message of prevMessages) {
@@ -171,13 +168,13 @@ export default function Home() {
 				{messages.length === 0 && (
 					<>
 						<p>
-							A fast, open-source voice assistant powered by{" "}
-							<A href="https://groq.com">Groq</A>,{" "}
-							<A href="https://cartesia.ai">Cartesia</A>,{" "}
-							<A href="https://www.vad.ricky0123.com/">VAD</A>,
-							and <A href="https://vercel.com">Vercel</A>.{" "}
+							Experience the cutting-edge capabilities of{" "}
+							<A href="https://aitekph.com">AitekPH</A>, powered
+							by <A href="https://aitekph.com">Vmodel</A>,{" "}
+							<A href="https://aitekph.com">Emilio LLM</A>, and{" "}
+							<A href="https://aitekph.com">Alex Developer</A>.{" "}
 							<A
-								href="https://github.com/ai-ng/swift"
+								href="https://aitekph.com/docs"
 								target="_blank"
 							>
 								Learn more
